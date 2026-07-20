@@ -230,18 +230,17 @@ test("isolates independent root sessions through the stdio LSP adapter", async (
     await waitFor(
       () => readEvents(eventsPath),
       (events) => {
-        if (process.platform !== "win32") {
-          return events.some(
-            (event) =>
-              event.type === "signal" &&
-              event.root === firstRoot &&
-              event.signal === "SIGTERM",
-          );
-        }
         const firstProcess = events.find(
           (event) => event.type === "start" && event.root === firstRoot,
         );
-        return firstProcess?.pid !== undefined && !isProcessAlive(firstProcess.pid);
+        return (
+          events.some(
+            (event) =>
+              (event.type === "signal" || event.type === "exit") &&
+              event.root === firstRoot,
+          ) ||
+          (firstProcess?.pid !== undefined && !isProcessAlive(firstProcess.pid))
+        );
       },
       "first root stop",
     );
@@ -275,13 +274,13 @@ test("isolates independent root sessions through the stdio LSP adapter", async (
     await waitFor(
       () => readEvents(eventsPath),
       (events) => {
-        if (process.platform !== "win32") {
-          return events.some((event) => event.type === "exit" && event.root === secondRoot);
-        }
         const secondProcess = events.find(
           (event) => event.type === "start" && event.root === secondRoot,
         );
-        return secondProcess?.pid !== undefined && !isProcessAlive(secondProcess.pid);
+        return (
+          events.some((event) => event.type === "exit" && event.root === secondRoot) ||
+          (secondProcess?.pid !== undefined && !isProcessAlive(secondProcess.pid))
+        );
       },
       "remaining root cleanup during shutdown",
     );

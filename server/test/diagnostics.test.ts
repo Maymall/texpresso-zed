@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
+import { URI } from "vscode-uri";
 
 import {
   AdapterDiagnosticSeverity,
@@ -7,13 +9,17 @@ import {
   parseDiagnosticLine,
 } from "../src/diagnostics.js";
 
+const workspacePath = (...segments: readonly string[]): string =>
+  path.join(process.platform === "win32" ? "C:\\workspace" : "/workspace", ...segments);
+const mainPath = workspacePath("main.tex");
+
 test("diagnostic paths become file URIs and TeX lines become zero based", () => {
   const parsed = parseDiagnosticLine(
     "error: relative/file.tex:12: missing brace",
-    "/workspace/main.tex",
+    mainPath,
   );
   assert.ok(parsed);
-  assert.equal(parsed.uri, "file:///workspace/relative/file.tex");
+  assert.equal(parsed.uri, URI.file(workspacePath("relative", "file.tex")).toString());
   assert.equal(parsed.diagnostic.severity, AdapterDiagnosticSeverity.Error);
   assert.deepEqual(parsed.diagnostic.range, {
     start: { line: 11, character: 0 },
@@ -22,7 +28,7 @@ test("diagnostic paths become file URIs and TeX lines become zero based", () => 
 });
 
 test("state handles append-lines, truncation, flush, and stale URI clearing", () => {
-  const state = new DiagnosticState({ rootPath: "/workspace/main.tex" });
+  const state = new DiagnosticState({ rootPath: mainPath });
   state.appendLines("out", [
     "error: main.tex:2: bad",
     "warning: main.tex:3: Overfull \\hbox",
@@ -38,16 +44,16 @@ test("state handles append-lines, truncation, flush, and stale URI clearing", ()
   state.truncateLines("out", 1);
   const second = state.flush();
   assert.equal(second.byUri.size, 1);
-  assert.deepEqual(second.urisToClear, ["file:///workspace/chapter.tex"]);
+  assert.deepEqual(second.urisToClear, [URI.file(workspacePath("chapter.tex")).toString()]);
 });
 
 test("box warnings are filtered by default and can be enabled", () => {
-  const hidden = new DiagnosticState({ rootPath: "/workspace/main.tex" });
+  const hidden = new DiagnosticState({ rootPath: mainPath });
   hidden.appendLines("out", ["warning: main.tex:1: Underfull \\hbox"]);
   assert.equal(hidden.flush().diagnostics.length, 0);
 
   const shown = new DiagnosticState({
-    rootPath: "/workspace/main.tex",
+    rootPath: mainPath,
     showBoxWarnings: true,
   });
   shown.appendLines("out", ["warning: main.tex:1: Underfull \\hbox"]);
@@ -60,7 +66,7 @@ test("box warnings are filtered by default and can be enabled", () => {
 });
 
 test("unparseable output is retained as log text, not a fake location", () => {
-  const state = new DiagnosticState({ rootPath: "/workspace/main.tex" });
+  const state = new DiagnosticState({ rootPath: mainPath });
   state.appendLines("out", ["This is ordinary TeX output"]);
   const result = state.flush();
   assert.deepEqual(result.diagnostics, []);
@@ -69,7 +75,7 @@ test("unparseable output is retained as log text, not a fake location", () => {
 });
 
 test("flush logs only new output and respects rollback", () => {
-  const state = new DiagnosticState({ rootPath: "/workspace/main.tex" });
+  const state = new DiagnosticState({ rootPath: mainPath });
   state.appendLines("log", ["engine start"]);
   state.appendLines("out", ["ordinary output"]);
   assert.deepEqual(state.flush().logLines, ["engine start", "ordinary output"]);
@@ -85,7 +91,7 @@ test("flush logs only new output and respects rollback", () => {
 });
 
 test("legacy partial appends are logged only for their new suffix", () => {
-  const state = new DiagnosticState({ rootPath: "/workspace/main.tex" });
+  const state = new DiagnosticState({ rootPath: mainPath });
   state.append("out", "foo");
   assert.deepEqual(state.flush().logLines, ["foo"]);
   state.append("out", "bar\n");
@@ -93,7 +99,7 @@ test("legacy partial appends are logged only for their new suffix", () => {
 });
 
 test("holds an incomplete diagnostic prefix across flushes", () => {
-  const state = new DiagnosticState({ rootPath: "/workspace/main.tex" });
+  const state = new DiagnosticState({ rootPath: mainPath });
   state.append("out", "error: main.tex:12");
   const prefix = state.flush();
   assert.deepEqual(prefix.diagnostics, []);
@@ -108,7 +114,7 @@ test("holds an incomplete diagnostic prefix across flushes", () => {
 });
 
 test("holds a diagnostic prefix with an empty message until its remainder arrives", () => {
-  const state = new DiagnosticState({ rootPath: "/workspace/main.tex" });
+  const state = new DiagnosticState({ rootPath: mainPath });
   state.append("out", "warning: main.tex:4: ");
   assert.deepEqual(state.flush().logLines, []);
 
