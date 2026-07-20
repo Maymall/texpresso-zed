@@ -1,0 +1,39 @@
+name: Release adapter
+
+on:
+  push:
+    tags:
+      - "adapter-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing adapter tag to build and upload
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm run build
+        working-directory: server
+      - run: cp server/dist/server.mjs server/dist/texpresso-live-server.mjs
+      - run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --generate-notes --title "TeXpresso adapter $TAG"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: gh release upload "$TAG" server/dist/texpresso-live-server.mjs --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 license = "Apache-2.0"
+description = "TeXpresso live preview extension for Zed"
+repository = "https://github.com/Maymall/texpresso-zed"
 
 [lib]
 crate-type = ["cdylib"]
