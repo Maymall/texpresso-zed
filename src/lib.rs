@@ -1,11 +1,12 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, path::PathBuf};
 
 use zed_extension_api::settings::LspSettings;
 use zed_extension_api::{self as zed, serde_json, Result};
 
-const SERVER_BUNDLE: &[u8] = include_bytes!("../server/dist/server.mjs");
-const SERVER_FILE_NAME: &str = "texpresso-live-server.mjs";
 const LANGUAGE_SERVER_ID: &str = "texpresso-live";
+const ADAPTER_RELEASE_TAG: &str = "adapter-v0.1.0";
+const ADAPTER_FILE_NAME: &str = "texpresso-live-adapter-v0.1.0.mjs";
+const ADAPTER_RELEASE_URL: &str = "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.0/texpresso-live-server.mjs";
 
 #[derive(Default)]
 struct TeXpressoExtension;
@@ -18,16 +19,58 @@ fn extension_directory() -> Result<PathBuf> {
     })
 }
 
-fn materialize_server_bundle() -> Result<PathBuf> {
-    // Zed gives extensions a separate writable work directory, not the source checkout.
-    let server_path = extension_directory()?.join(SERVER_FILE_NAME);
-    fs::write(&server_path, SERVER_BUNDLE).map_err(|error| {
-        format!(
-            "TeXpresso could not write its adapter to {}: {error}",
+fn adapter_path() -> Result<PathBuf> {
+    // Zed gives extensions a writable work directory, not the source checkout.
+    Ok(extension_directory()?.join(ADAPTER_FILE_NAME))
+}
+
+fn install_adapter(language_server_id: &zed::LanguageServerId) -> Result<PathBuf> {
+    let server_path = adapter_path()?;
+    if server_path.is_file() {
+        return Ok(server_path);
+    }
+
+    zed::set_language_server_installation_status(
+        language_server_id,
+        &zed::LanguageServerInstallationStatus::CheckingForUpdate,
+    );
+    zed::set_language_server_installation_status(
+        language_server_id,
+        &zed::LanguageServerInstallationStatus::Downloading,
+    );
+
+    if let Err(error) = zed::download_file(
+        ADAPTER_RELEASE_URL,
+        ADAPTER_FILE_NAME,
+        zed::DownloadedFileType::Uncompressed,
+    ) {
+        let message = format!(
+            "TeXpresso could not download adapter {ADAPTER_RELEASE_TAG} from {ADAPTER_RELEASE_URL}: {error}"
+        );
+        zed::set_language_server_installation_status(
+            language_server_id,
+            &zed::LanguageServerInstallationStatus::Failed(message.clone()),
+        );
+        return Err(message);
+    }
+
+    if server_path.is_file() {
+        zed::set_language_server_installation_status(
+            language_server_id,
+            &zed::LanguageServerInstallationStatus::None,
+        );
+        Ok(server_path)
+    } else {
+        let message = format!(
+            "TeXpresso downloaded adapter {ADAPTER_RELEASE_TAG}, but {} was not created",
             server_path.display()
-        )
-    })?;
-    Ok(server_path)
+        );
+        zed::set_language_server_installation_status(
+            language_server_id,
+            &zed::LanguageServerInstallationStatus::Failed(message.clone()),
+        );
+        Err(message)
+    }
 }
 
 /// Give the adapter its regular workspace settings before it sees its first
@@ -66,7 +109,7 @@ impl zed::Extension for TeXpressoExtension {
             ));
         }
 
-        let server_path = materialize_server_bundle()?;
+        let server_path = install_adapter(language_server_id)?;
 
         Ok(zed::Command {
             command: zed::node_binary_path()?,
@@ -158,6 +201,16 @@ mod tests {
                     "texpressoCommand": "workspace-texpresso",
                 }
             }))
+        );
+    }
+
+    #[test]
+    fn adapter_release_is_pinned_to_a_versioned_asset() {
+        assert_eq!(ADAPTER_RELEASE_TAG, "adapter-v0.1.0");
+        assert_eq!(ADAPTER_FILE_NAME, "texpresso-live-adapter-v0.1.0.mjs");
+        assert_eq!(
+            ADAPTER_RELEASE_URL,
+            "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.0/texpresso-live-server.mjs"
         );
     }
 }
