@@ -377,7 +377,7 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
         ) &&
         items.some(
           (item) =>
-            item.uri === mainUri &&
+            sameFileUri(item.uri, mainUri) &&
             item.diagnostics.some((diagnostic) => /stopped unexpectedly/u.test(diagnostic.message)),
         ),
       "diagnostic cleanup after abnormal process exit",
