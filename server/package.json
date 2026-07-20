@@ -9,7 +9,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test \"test/**/*.test.ts\"",
+    "test": "tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "lint": "eslint ."
   },
   "dependencies": {
