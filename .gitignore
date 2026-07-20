@@ -1,4 +1,5 @@
 /target/
+/extension.wasm
 server/node_modules/
 server/dist/*.map
 server/dist/*.js
