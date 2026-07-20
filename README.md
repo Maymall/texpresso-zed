@@ -180,8 +180,11 @@ so the adapter logs that limitation rather than reporting a false success.
   that installation works independently.
 - A non-zero TeXpresso exit clears its diagnostics. Use **restart** to create a
   clean session and rebuild the VFS.
-- The first verified release is Linux x86_64. Windows and WSL are not claimed
-  as supported yet.
+- The automated adapter suite runs on Linux, macOS, and Windows. Native
+  TeXpresso viewer behavior still needs a viewer-capable desktop smoke test on
+  the target platform before it is claimed as verified; macOS arm64 currently
+  has build and engine-initialization coverage, not a published viewer smoke
+  result.
 
 ## Development
 

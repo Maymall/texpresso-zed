@@ -8,6 +8,7 @@ import {
   relative,
   resolve,
 } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   CodeActionKind,
@@ -47,6 +48,7 @@ import {
 } from "./config.js";
 import {
   TexpressoSession,
+  type ProcessFactory,
   type SessionCallbacks,
 } from "./texpresso-session.js";
 
@@ -90,6 +92,16 @@ interface SessionState {
 interface WorkspaceFolderChangeEvent {
   added: readonly { uri: string }[];
   removed: readonly { uri: string }[];
+}
+
+type SettingsSource =
+  | "initializationOptions"
+  | "workspace/configuration"
+  | "didChangeConfiguration";
+
+export interface TexpressoServerOptions {
+  /** Test seam; production uses TexpressoSession's normal child-process spawn. */
+  processFactory?: ProcessFactory;
 }
 
 /**
@@ -248,6 +260,7 @@ function messageLevel(
 export function createTexpressoServer(
   input = process.stdin,
   output = process.stdout,
+  options: TexpressoServerOptions = {},
 ): ReturnType<typeof createConnection> {
   // Passing streams explicitly selects stdio and avoids relying on a command
   // line `--stdio` flag, which Zed does not add to extension commands.
@@ -261,6 +274,9 @@ export function createTexpressoServer(
   let watcherRegistrationStarted = false;
   let workspaceFolderListenerStarted = false;
   let workspaceRootCandidates: readonly string[] | undefined;
+  let initialWorkspaceConfigurationRequested = false;
+  let resolveInitialSettings: (() => void) | undefined;
+  let initialSettingsReady: Promise<void> = Promise.resolve();
 
   const sessions = new Map<string, SessionState>();
   const rootIssues = new Map<string, RootIssue>();
@@ -282,6 +298,26 @@ export function createTexpressoServer(
     return run;
   }
 
+  function logSettings(source: SettingsSource, value: ServerSettings): void {
+    log(
+      MessageType.Debug,
+      `Applied TeXpresso settings from ${source}; command=${JSON.stringify(value.command)}.`,
+    );
+  }
+
+  function beginInitialWorkspaceConfiguration(): void {
+    initialWorkspaceConfigurationRequested = true;
+    initialSettingsReady = new Promise<void>((resolveInitialSettingsPromise) => {
+      resolveInitialSettings = resolveInitialSettingsPromise;
+    });
+  }
+
+  function finishInitialWorkspaceConfiguration(): void {
+    const resolveInitialSettingsPromise = resolveInitialSettings;
+    resolveInitialSettings = undefined;
+    resolveInitialSettingsPromise?.();
+  }
+
   // TextDocuments owns the canonical in-memory text. Its update hook gives us
   // the original incremental ranges before they are applied, so change-range
   // remains UTF-16/LSP-compatible instead of degrading to full-text opens.
@@ -289,7 +325,7 @@ export function createTexpressoServer(
     create: TextDocument.create,
     update: (document, changes, version) => {
       const generation = nextDocumentGeneration(document.uri);
-      enqueue(document.uri, () =>
+      enqueueAfterInitialSettings(document.uri, () =>
         handleChanges(document.uri, changes, generation),
       );
       return TextDocument.update(document, changes, version);
@@ -574,6 +610,7 @@ export function createTexpressoServer(
       key,
       sessionSettings(settings),
       callbackFor(key, token),
+      options.processFactory,
     );
     const state: SessionState = {
       token,
@@ -691,6 +728,22 @@ export function createTexpressoServer(
       if (documentQueues.get(uri) === next) {
         documentQueues.delete(uri);
       }
+    });
+  }
+
+  /**
+   * A client may send didOpen immediately after initialized. Zed's configured
+   * LSP settings arrive through a separate workspace/configuration request,
+   * so do not let an open or change enter the document queue until that first
+   * request has completed. Waiting here, rather than from a queued task,
+   * avoids a cycle with applySettings' lifecycle queue.
+   */
+  function enqueueAfterInitialSettings(
+    uri: string,
+    task: () => Promise<void>,
+  ): void {
+    void initialSettingsReady.then(() => {
+      enqueue(uri, task);
     });
   }
 
@@ -1033,11 +1086,15 @@ export function createTexpressoServer(
     return enqueueLifecycle(() => controlInternal(command, raw));
   }
 
-  async function applySettingsInternal(value: unknown): Promise<void> {
+  async function applySettingsInternal(
+    value: unknown,
+    source: SettingsSource,
+  ): Promise<void> {
     if (shuttingDown) {
       return;
     }
     const next = parseSettings(value);
+    logSettings(source, next);
     if (sameSettings(settings, next)) {
       return;
     }
@@ -1056,8 +1113,11 @@ export function createTexpressoServer(
     }
   }
 
-  function applySettings(value: unknown): Promise<void> {
-    return enqueueLifecycle(() => applySettingsInternal(value));
+  function applySettings(
+    value: unknown,
+    source: SettingsSource,
+  ): Promise<void> {
+    return enqueueLifecycle(() => applySettingsInternal(value, source));
   }
 
   connection.onInitialize((params: InitializeParams): InitializeResult => {
@@ -1068,6 +1128,10 @@ export function createTexpressoServer(
       workspaceFolders = [canonicalPath(URI.parse(params.rootUri).fsPath)];
     }
     settings = parseSettings(params.initializationOptions);
+    logSettings("initializationOptions", settings);
+    if (params.capabilities.workspace?.configuration === true) {
+      beginInitialWorkspaceConfiguration();
+    }
     initialized = true;
     // WorkspaceFoldersFeature installs its own raw handler during initialize.
     // Register after that feature has initialized so this single handler owns
@@ -1159,18 +1223,20 @@ export function createTexpressoServer(
     if (!initialized) {
       return;
     }
-    if (
-      clientCapabilities.workspace?.configuration === true
-    ) {
-      void connection.workspace
-        .getConfiguration("texpresso-live")
-        .then((value) => applySettings(value))
-        .catch((error) =>
+    if (initialWorkspaceConfigurationRequested) {
+      void (async () => {
+        try {
+          const value = await connection.workspace.getConfiguration("texpresso-live");
+          await applySettings(value, "workspace/configuration");
+        } catch (error) {
           log(
             MessageType.Warning,
-            `Could not read TeXpresso workspace settings: ${String(error)}`,
-          ),
-        );
+            `Could not read TeXpresso workspace settings; using initializationOptions: ${String(error)}`,
+          );
+        } finally {
+          finishInitialWorkspaceConfiguration();
+        }
+      })();
     }
     if (
       clientCapabilities.workspace?.didChangeWatchedFiles
@@ -1198,7 +1264,7 @@ export function createTexpressoServer(
   });
 
   connection.onDidChangeConfiguration((params) => {
-    void applySettings(params.settings);
+    void applySettings(params.settings, "didChangeConfiguration");
   });
 
   connection.onNotification("workspace/didRenameFiles", (params: {
@@ -1256,11 +1322,13 @@ export function createTexpressoServer(
     // path. Do this synchronously, before its queued synchronization work, so
     // a later delete notification cannot be undone by an older didOpen task.
     removedRoots.delete(canonicalPath(pathFromUri(event.document.uri)));
-    enqueue(event.document.uri, () =>
+    enqueueAfterInitialSettings(event.document.uri, () =>
       handleOpen(event.document, generation),
     );
   });
-  documents.onDidClose((event) => enqueue(event.document.uri, () => handleClose(event.document)));
+  documents.onDidClose((event) =>
+    enqueueAfterInitialSettings(event.document.uri, () => handleClose(event.document)),
+  );
   documents.listen(connection);
 
   connection.onShutdown(async () => {
@@ -1275,5 +1343,10 @@ export function createTexpressoServer(
   return connection;
 }
 
-const server = createTexpressoServer();
-server.listen();
+if (
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  const server = createTexpressoServer();
+  server.listen();
+}
