@@ -157,6 +157,18 @@ function sessionPath(filePath: string): string {
   return process.platform === "win32" ? filePath.toLowerCase() : filePath;
 }
 
+function sameFileUri(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (process.platform !== "win32") {
+    return false;
+  }
+  const leftPath = URI.parse(left).fsPath;
+  const rightPath = URI.parse(right).fsPath;
+  return leftPath.toLowerCase() === rightPath.toLowerCase();
+}
+
 test("starts the adapter over stdio and synchronizes a fake TeXpresso process end to end", async () => {
   const workspace = sessionPath(
     await realpath(await mkdtemp(path.join(tmpdir(), "texpresso zed e2e-"))),
@@ -270,7 +282,7 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
       (items) =>
         items.some(
           (item) =>
-            item.uri === childUri &&
+            sameFileUri(item.uri, childUri) &&
             item.diagnostics.some(
               (diagnostic) =>
                 diagnostic.message === "fake error" &&
@@ -360,7 +372,9 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     await waitFor(
       () => diagnostics,
       (items) =>
-        items.some((item) => item.uri === childUri && item.diagnostics.length === 0) &&
+        items.some(
+          (item) => sameFileUri(item.uri, childUri) && item.diagnostics.length === 0,
+        ) &&
         items.some(
           (item) =>
             item.uri === mainUri &&
