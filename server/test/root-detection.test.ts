@@ -24,7 +24,10 @@ test("parses TEX and TeXpresso magic comments with TEX precedence", () => {
 });
 
 test("root priority is configured, magic, then current document", async () => {
-  const workspace = "/tmp/texpresso-root-test";
+  const workspace =
+    process.platform === "win32"
+      ? "C:\\tmp\\texpresso-root-test"
+      : "/tmp/texpresso-root-test";
   const document = path.join(workspace, "chapters", "one.tex");
   const configured = await detectRoot({
     documentPath: document,

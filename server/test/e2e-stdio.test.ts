@@ -66,9 +66,8 @@ process.stdin.on("data", (chunk) => {
       process.stdout.write(frame.slice(0, 5));
       setTimeout(() => {
         process.stdout.write(frame.slice(5));
-        process.stdout.write(JSON.stringify(["append-lines", "out", "ordinary TeX output"]) + "\\n" + JSON.stringify(["flush"]) + "\\n");
-        process.stderr.write("Err");
-        process.stderr.write("or: " + path.join(path.dirname(rootPath), "child.tex") + ":2: fake error\\n");
+        process.stdout.write(JSON.stringify(["append-lines", "out", "ordinary TeX output", "error: child.tex:2: fake error"]) + "\\n" + JSON.stringify(["flush"]) + "\\n");
+        process.stderr.write("fake TeXpresso stderr log\\n");
       }, 5);
     }
     if (name === "open" && typeof message[1] === "string" && message[1].endsWith("child.tex") && !resetSent) {
