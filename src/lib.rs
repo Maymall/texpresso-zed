@@ -4,9 +4,9 @@ use zed_extension_api::settings::LspSettings;
 use zed_extension_api::{self as zed, serde_json, Result};
 
 const LANGUAGE_SERVER_ID: &str = "texpresso-live";
-const ADAPTER_RELEASE_TAG: &str = "adapter-v0.1.0";
-const ADAPTER_FILE_NAME: &str = "texpresso-live-adapter-v0.1.0.mjs";
-const ADAPTER_RELEASE_URL: &str = "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.0/texpresso-live-server.mjs";
+const ADAPTER_RELEASE_TAG: &str = "adapter-v0.1.1";
+const ADAPTER_FILE_NAME: &str = "texpresso-live-adapter-v0.1.1.mjs";
+const ADAPTER_RELEASE_URL: &str = "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.1/texpresso-live-server.mjs";
 
 #[derive(Default)]
 struct TeXpressoExtension;
@@ -206,11 +206,11 @@ mod tests {
 
     #[test]
     fn adapter_release_is_pinned_to_a_versioned_asset() {
-        assert_eq!(ADAPTER_RELEASE_TAG, "adapter-v0.1.0");
-        assert_eq!(ADAPTER_FILE_NAME, "texpresso-live-adapter-v0.1.0.mjs");
+        assert_eq!(ADAPTER_RELEASE_TAG, "adapter-v0.1.1");
+        assert_eq!(ADAPTER_FILE_NAME, "texpresso-live-adapter-v0.1.1.mjs");
         assert_eq!(
             ADAPTER_RELEASE_URL,
-            "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.0/texpresso-live-server.mjs"
+            "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.1/texpresso-live-server.mjs"
         );
     }
 }
