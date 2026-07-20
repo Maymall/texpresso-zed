@@ -1,0 +1,10 @@
+/target/
+server/node_modules/
+server/dist/*.map
+server/dist/*.js
+server/dist/*.mjs
+server/dist/*.cjs
+server/dist/*.d.ts
+server/coverage/
+*.swp
+.DS_Store

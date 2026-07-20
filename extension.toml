@@ -1,0 +1,10 @@
+id = "texpresso-live"
+name = "TeXpresso Live"
+version = "0.1.0"
+schema_version = 1
+authors = ["TeXpresso Zed contributors"]
+description = "Live TeXpresso preview and diagnostics for the existing LaTeX language."
+
+[language_servers.texpresso-live]
+name = "TeXpresso"
+language = "LaTeX"
