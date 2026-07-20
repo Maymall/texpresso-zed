@@ -7,6 +7,7 @@ import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 
 import type { Diagnostic } from "vscode-languageserver-types";
+import { URI } from "vscode-uri";
 
 import { encodeMessage, type TeXpressoMessage } from "../src/protocol.js";
 import {
@@ -14,6 +15,10 @@ import {
   type ProcessFactory,
   type TexpressoProcess,
 } from "../src/texpresso-session.js";
+
+const fixtureWorkspace = process.platform === "win32" ? "c:\\workspace" : "/workspace";
+const fixturePath = (...segments: readonly string[]): string =>
+  path.join(fixtureWorkspace, ...segments);
 
 class CaptureWritable extends Writable {
   readonly chunks: string[] = [];
@@ -166,7 +171,7 @@ test("session writes exactly one NDJSON line per command and resumes after drain
 });
 
 test("spawns with an argument array for paths and configured options", async () => {
-  const root = "/workspace/paper with spaces/main.tex";
+  const root = fixturePath("paper with spaces", "main.tex");
   const child = new FakeProcess();
   let invocation:
     | {
@@ -199,6 +204,8 @@ test("spawns with an argument array for paths and configured options", async () 
   assert.deepEqual(invocation, {
     command: "/opt/TeXpresso bin/texpresso",
     args: [
+      "--jobname",
+      "paper draft",
       "-json",
       "-lines",
       "-tectonic",
@@ -206,12 +213,10 @@ test("spawns with an argument array for paths and configured options", async () 
       "includes with spaces",
       "-I",
       "/shared/tex",
-      "--jobname",
-      "paper draft",
       root,
     ],
     shell: false,
-    cwd: "/workspace/paper with spaces",
+    cwd: fixturePath("paper with spaces"),
   });
   await session.stop();
 });
@@ -249,8 +254,8 @@ test("treats an already-closed stdin as a recoverable process failure", async ()
 });
 
 test("synchronizes open editor buffers before input registration and refreshes them", async () => {
-  const root = "/workspace/project/main.tex";
-  const chapter = "/workspace/project/chapter.tex";
+  const root = fixturePath("project", "main.tex");
+  const chapter = fixturePath("project", "chapter.tex");
   const child = new FakeProcess();
   const liveDocuments = new Map<string, string>();
   const session = new TexpressoSession(
@@ -325,8 +330,8 @@ test("synchronizes open editor buffers before input registration and refreshes t
 });
 
 test("lookup-file fulfills a promised path from an unsaved editor buffer", async () => {
-  const root = "/workspace/project/main.tex";
-  const generated = "/workspace/project/generated.tex";
+  const root = fixturePath("project", "main.tex");
+  const generated = fixturePath("project", "generated.tex");
   const child = new FakeProcess();
   const session = new TexpressoSession(
     root,
@@ -463,7 +468,10 @@ test("terminal shutdown prevents an in-flight restart from spawning a replacemen
 });
 
 test("serializes reconciles so input rollback cannot reopen a stale path alias", async () => {
-  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "texpresso-session-"));
+  const generatedWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), "texpresso-session-"));
+  const workspace = process.platform === "win32"
+    ? generatedWorkspace.toLowerCase()
+    : generatedWorkspace;
   const root = path.join(workspace, "main.tex");
   const realPath = path.join(workspace, "chapter.tex");
   const firstAlias = path.join(workspace, "chapter-first.tex");
@@ -512,12 +520,15 @@ test("serializes reconciles so input rollback cannot reopen a stale path alias",
 });
 
 test("input-file rollback drops higher indexes and reset-sync rebuilds the current VFS", async () => {
-  const root = "/workspace/project/main.tex";
+  const root = fixturePath("project", "main.tex");
+  const first = fixturePath("project", "a.tex");
+  const second = fixturePath("project", "b.tex");
+  const third = fixturePath("project", "c.tex");
   const openDocuments = new Map<string, string>([
     [root, "root text"],
-    ["/workspace/project/a.tex", "unsaved a"],
-    ["/workspace/project/b.tex", "unsaved b"],
-    ["/workspace/project/c.tex", "unsaved c"],
+    [first, "unsaved a"],
+    [second, "unsaved b"],
+    [third, "unsaved c"],
   ]);
   const children: FakeProcess[] = [];
   const factory: ProcessFactory = () => {
@@ -554,7 +565,7 @@ test("input-file rollback drops higher indexes and reset-sync rebuilds the curre
   );
 
   child.stdin.clear();
-  await session.closeDocument("/workspace/project/b.tex");
+  await session.closeDocument(second);
   assert.equal(
     commandsNamed(child, "close").length,
     0,
@@ -573,14 +584,14 @@ test("input-file rollback drops higher indexes and reset-sync rebuilds the curre
   );
   assert.deepEqual(
     new Set(commandsNamed(child, "close").map((message) => message[1])),
-    new Set(["/workspace/project/b.tex"]),
+    new Set([second]),
   );
   assert.deepEqual(commandsNamed(child, "open"), [
-    ["open", "/workspace/project/c.tex", "unsaved c"],
+    ["open", third, "unsaved c"],
   ]);
 
   child.stdin.clear();
-  await session.closeDocument("/workspace/project/c.tex");
+  await session.closeDocument(third);
   assert.equal(commandsNamed(child, "close").length, 0);
   child.emitMessage(["reset-sync"]);
   await settle();
@@ -592,8 +603,8 @@ test("input-file rollback drops higher indexes and reset-sync rebuilds the curre
     ),
     new Set([
       JSON.stringify(["open", root, "root text"]),
-      JSON.stringify(["open", "/workspace/project/a.tex", "unsaved a"]),
-      JSON.stringify(["open", "/workspace/project/c.tex", "unsaved c"]),
+      JSON.stringify(["open", first, "unsaved a"]),
+      JSON.stringify(["open", third, "unsaved c"]),
     ]),
   );
   assert.equal(commandsNamed(child, "close").length, 0);
@@ -608,15 +619,15 @@ test("input-file rollback drops higher indexes and reset-sync rebuilds the curre
     ),
     new Set([
       JSON.stringify(["open", root, "root text"]),
-      JSON.stringify(["open", "/workspace/project/a.tex", "unsaved a"]),
-      JSON.stringify(["open", "/workspace/project/c.tex", "unsaved c"]),
+      JSON.stringify(["open", first, "unsaved a"]),
+      JSON.stringify(["open", third, "unsaved c"]),
     ]),
   );
   await session.stop();
 });
 
 test("merges chunked stderr diagnostics with protocol diagnostics and clears them on edit", async () => {
-  const root = "/workspace/main.tex";
+  const root = fixturePath("main.tex");
   const child = new FakeProcess();
   const published: Array<{ uri: string; diagnostics: Diagnostic[] }> = [];
   const session = new TexpressoSession(
@@ -635,7 +646,7 @@ test("merges chunked stderr diagnostics with protocol diagnostics and clears the
   child.emitMessage(["append-lines", "out", "error: main.tex:3: protocol error"]);
   child.emitMessage(["flush"]);
   child.stderr.write(Buffer.from("Warn"));
-  child.stderr.write(Buffer.from("ing: /workspace/main.tex:5: engine warning\n"));
+  child.stderr.write(Buffer.from(`ing: ${root}:5: engine warning\n`));
   await settle();
 
   assert.deepEqual(
@@ -658,7 +669,7 @@ test("merges chunked stderr diagnostics with protocol diagnostics and clears the
 });
 
 test("nonzero child exit clears diagnostics and a new process rebuilds cached buffers", async () => {
-  const root = "/workspace/main.tex";
+  const root = fixturePath("main.tex");
   const children: FakeProcess[] = [];
   const published: Array<{ uri: string; diagnostics: Diagnostic[] }> = [];
   const exits: Array<Error | undefined> = [];
@@ -694,7 +705,7 @@ test("nonzero child exit clears diagnostics and a new process rebuilds cached bu
   assert.equal(session.running, false);
   assert.match(exits[0]?.message ?? "", /code 23/u);
   assert.deepEqual(published.at(-1), {
-    uri: "file:///workspace/main.tex",
+    uri: URI.file(root).toString(),
     diagnostics: [],
   });
 

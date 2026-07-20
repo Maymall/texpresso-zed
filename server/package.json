@@ -1,6 +1,6 @@
 {
   "name": "@texpresso-zed/language-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,7 +9,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test \"test/**/*.test.ts\"",
+    "test": "tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "lint": "eslint ."
   },
   "dependencies": {

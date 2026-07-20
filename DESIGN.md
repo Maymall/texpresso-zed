@@ -25,7 +25,7 @@ the implementation. It was last reviewed on 2026-07-20.
 - A Registry extension with a language server must download that server or
   discover it in the user environment. It must not embed the server bundle in
   the extension. `src/lib.rs` therefore downloads the immutable
-  `adapter-v0.1.0` GitHub Release asset once and reuses the cached file.
+  `adapter-v0.1.1` GitHub Release asset once and reuses the cached file.
 - `LspSettings::for_worktree` exposes normal `lsp.<id>.settings` and
   initialization options. The launcher mirrors the settings into
   initialization options to avoid a worktree-trust first-open race; normal

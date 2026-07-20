@@ -10,6 +10,8 @@ import {
   parseRootMagicComment,
 } from "../src/root-detection.js";
 
+const fixtureWorkspace = process.platform === "win32" ? "C:\\workspace" : "/workspace";
+
 test("parses TEX and TeXpresso magic comments with TEX precedence", () => {
   const parsed = parseRootMagicComment(
     "% !TeXpresso root = ../texpresso.tex\n% !TEX root = main file.tex\n",
@@ -22,7 +24,10 @@ test("parses TEX and TeXpresso magic comments with TEX precedence", () => {
 });
 
 test("root priority is configured, magic, then current document", async () => {
-  const workspace = "/tmp/texpresso-root-test";
+  const workspace =
+    process.platform === "win32"
+      ? "C:\\tmp\\texpresso-root-test"
+      : "/tmp/texpresso-root-test";
   const document = path.join(workspace, "chapters", "one.tex");
   const configured = await detectRoot({
     documentPath: document,
@@ -77,10 +82,10 @@ test("workspace detection only chooses a unique main candidate", async () => {
 
 test("ambiguous workspace candidates produce an actionable reason", () => {
   const result = detectRootSync({
-    documentPath: "/workspace/chapter.tex",
+    documentPath: path.join(fixtureWorkspace, "chapter.tex"),
     documentText: "\\section{Chapter}",
-    workspaceFolders: ["/workspace"],
-    workspaceCandidates: ["/workspace/a.tex", "/workspace/b.tex"],
+    workspaceFolders: [fixtureWorkspace],
+    workspaceCandidates: [path.join(fixtureWorkspace, "a.tex"), path.join(fixtureWorkspace, "b.tex")],
   });
   assert.equal(result.found, false);
   if (!result.found) {
@@ -92,26 +97,26 @@ test("workspace candidates are requested lazily after higher-priority rules", ()
   let calls = 0;
   const provider = (): string[] => {
     calls += 1;
-    return ["/workspace/main.tex"];
+    return [path.join(fixtureWorkspace, "main.tex")];
   };
   const current = detectRootSync({
-    documentPath: "/workspace/current.tex",
+    documentPath: path.join(fixtureWorkspace, "current.tex"),
     documentText: "\\begin{document}\n",
-    workspaceFolders: ["/workspace"],
+    workspaceFolders: [fixtureWorkspace],
     workspaceCandidatesProvider: provider,
   });
   assert.equal(current.found, true);
   assert.equal(calls, 0);
 
   const child = detectRootSync({
-    documentPath: "/workspace/chapter.tex",
+    documentPath: path.join(fixtureWorkspace, "chapter.tex"),
     documentText: "\\section{Chapter}",
-    workspaceFolders: ["/workspace"],
+    workspaceFolders: [fixtureWorkspace],
     workspaceCandidatesProvider: provider,
   });
   assert.deepEqual(child, {
     found: true,
-    rootPath: "/workspace/main.tex",
+    rootPath: path.join(fixtureWorkspace, "main.tex"),
     source: "workspace",
   });
   assert.equal(calls, 1);
