@@ -16,6 +16,7 @@ import { URI } from "vscode-uri";
 
 interface FakeEvent {
   readonly type: string;
+  readonly pid?: number;
   readonly message?: readonly unknown[];
   readonly args?: readonly string[];
   readonly signal?: string;
@@ -43,7 +44,7 @@ process.on("SIGTERM", () => {
 process.on("exit", (code) => {
   record({ type: "exit", code });
 });
-record({ type: "start", args: process.argv.slice(2) });
+record({ type: "start", args: process.argv.slice(2), pid: process.pid });
 let buffer = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
@@ -167,6 +168,29 @@ function sameFileUri(left: string, right: string): boolean {
   const leftPath = URI.parse(left).fsPath;
   const rightPath = URI.parse(right).fsPath;
   return leftPath.toLowerCase() === rightPath.toLowerCase();
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function processStopped(
+  events: readonly FakeEvent[],
+  exitsBefore: number,
+  process: FakeEvent | undefined,
+): boolean {
+  return (
+    events.filter((event) => event.type === "exit").length >= exitsBefore + 1 ||
+    (process?.pid !== undefined && !isProcessAlive(process.pid))
+  );
 }
 
 test("starts the adapter over stdio and synchronizes a fake TeXpresso process end to end", async () => {
@@ -454,6 +478,9 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     const startsBeforeConfiguration = recoveredEvents.filter(
       (event) => event.type === "start",
     ).length;
+    const processBeforeConfiguration = recoveredEvents
+      .filter((event) => event.type === "start")
+      .at(-1);
     await connection.sendNotification("workspace/didChangeConfiguration", {
       settings: {
         "texpresso-live": {
@@ -467,8 +494,7 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     await waitFor(
       () => fakeEvents(eventsPath),
       (events) =>
-        events.filter((event) => event.type === "exit").length >=
-          exitsBeforeConfiguration + 1 &&
+        processStopped(events, exitsBeforeConfiguration, processBeforeConfiguration) &&
         events.filter((event) => event.type === "start").length ===
           startsBeforeConfiguration + 1 &&
         events.filter((event) => event.type === "ready").length >=
@@ -487,15 +513,16 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     const exitsBeforeStop = configuredEvents.filter(
       (event) => event.type === "exit",
     ).length;
+    const processBeforeStop = configuredEvents
+      .filter((event) => event.type === "start")
+      .at(-1);
     await connection.sendRequest("workspace/executeCommand", {
       command: "texpresso-live.stop",
       arguments: [{ uri: mainUri, line: 0 }],
     });
     await waitFor(
       () => fakeEvents(eventsPath),
-      (events) =>
-        events.filter((event) => event.type === "exit").length >=
-        exitsBeforeStop + 1,
+      (events) => processStopped(events, exitsBeforeStop, processBeforeStop),
       "manual stop",
     );
     connection.sendNotification("textDocument/didChange", {
@@ -544,14 +571,15 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     const exitsBeforeRename = (await fakeEvents(eventsPath)).filter(
       (event) => event.type === "exit",
     ).length;
+    const processBeforeRename = (await fakeEvents(eventsPath))
+      .filter((event) => event.type === "start")
+      .at(-1);
     await connection.sendNotification("workspace/didRenameFiles", {
       files: [{ oldUri: mainUri, newUri: URI.file(renamedRootPath).toString() }],
     });
     await waitFor(
       () => fakeEvents(eventsPath),
-      (events) =>
-        events.filter((event) => event.type === "exit").length >=
-        exitsBeforeRename + 1,
+      (events) => processStopped(events, exitsBeforeRename, processBeforeRename),
       "root rename cleanup",
     );
 
@@ -579,14 +607,15 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     const exitsBeforeWatchedDelete = (await fakeEvents(eventsPath)).filter(
       (event) => event.type === "exit",
     ).length;
+    const processBeforeWatchedDelete = (await fakeEvents(eventsPath))
+      .filter((event) => event.type === "start")
+      .at(-1);
     await connection.sendNotification("workspace/didChangeWatchedFiles", {
       changes: [{ uri: mainUri, type: 3 }],
     });
     await waitFor(
       () => fakeEvents(eventsPath),
-      (events) =>
-        events.filter((event) => event.type === "exit").length >=
-        exitsBeforeWatchedDelete + 1,
+      (events) => processStopped(events, exitsBeforeWatchedDelete, processBeforeWatchedDelete),
       "watched root deletion cleanup",
     );
     const startsAfterWatchedDelete = (await fakeEvents(eventsPath)).filter(
@@ -619,6 +648,9 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     const exitsBeforeWorkspaceRemoval = (await fakeEvents(eventsPath)).filter(
       (event) => event.type === "exit",
     ).length;
+    const processBeforeWorkspaceRemoval = (await fakeEvents(eventsPath))
+      .filter((event) => event.type === "start")
+      .at(-1);
     await connection.sendNotification("workspace/didChangeWorkspaceFolders", {
       event: {
         added: [],
@@ -628,8 +660,7 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     await waitFor(
       () => fakeEvents(eventsPath),
       (events) =>
-        events.filter((event) => event.type === "exit").length >=
-        exitsBeforeWorkspaceRemoval + 1,
+        processStopped(events, exitsBeforeWorkspaceRemoval, processBeforeWorkspaceRemoval),
       "workspace removal cleanup",
     );
     await connection.sendRequest("workspace/executeCommand", {
@@ -648,12 +679,13 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     const exitsBeforeShutdown = (await fakeEvents(eventsPath)).filter(
       (event) => event.type === "exit",
     ).length;
+    const processBeforeShutdown = (await fakeEvents(eventsPath))
+      .filter((event) => event.type === "start")
+      .at(-1);
     await connection.sendRequest("shutdown");
     await waitFor(
       () => fakeEvents(eventsPath),
-      (events) =>
-        events.filter((event) => event.type === "exit").length >=
-        exitsBeforeShutdown + 1,
+      (events) => processStopped(events, exitsBeforeShutdown, processBeforeShutdown),
       "child cleanup before LSP exit",
     );
     const adapterExit = once(adapter, "exit");
@@ -665,9 +697,7 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     );
     const afterShutdown = await fakeEvents(eventsPath);
     assert.equal(
-      afterShutdown.filter(
-        (event) => event.type === "exit",
-      ).length >= exitsBeforeShutdown + 1,
+      processStopped(afterShutdown, exitsBeforeShutdown, processBeforeShutdown),
       true,
       "LSP shutdown must terminate the live TeXpresso child",
     );
