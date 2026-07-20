@@ -1,12 +1,15 @@
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 use zed_extension_api::settings::LspSettings;
 use zed_extension_api::{self as zed, serde_json, Result};
 
 const LANGUAGE_SERVER_ID: &str = "texpresso-live";
-const ADAPTER_RELEASE_TAG: &str = "adapter-v0.1.1";
-const ADAPTER_FILE_NAME: &str = "texpresso-live-adapter-v0.1.1.mjs";
-const ADAPTER_RELEASE_URL: &str = "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.1/texpresso-live-server.mjs";
+const ADAPTER_RELEASE_TAG: &str = "adapter-v0.1.2";
+const ADAPTER_FILE_NAME: &str = "texpresso-live-adapter-v0.1.2.mjs";
+const ADAPTER_RELEASE_URL: &str = "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.2/texpresso-live-server.mjs";
 
 #[derive(Default)]
 struct TeXpressoExtension;
@@ -19,9 +22,13 @@ fn extension_directory() -> Result<PathBuf> {
     })
 }
 
+fn adapter_path_in(work_directory: &Path) -> PathBuf {
+    work_directory.join(ADAPTER_FILE_NAME)
+}
+
 fn adapter_path() -> Result<PathBuf> {
     // Zed gives extensions a writable work directory, not the source checkout.
-    Ok(extension_directory()?.join(ADAPTER_FILE_NAME))
+    Ok(adapter_path_in(&extension_directory()?))
 }
 
 fn install_adapter(language_server_id: &zed::LanguageServerId) -> Result<PathBuf> {
@@ -206,11 +213,24 @@ mod tests {
 
     #[test]
     fn adapter_release_is_pinned_to_a_versioned_asset() {
-        assert_eq!(ADAPTER_RELEASE_TAG, "adapter-v0.1.1");
-        assert_eq!(ADAPTER_FILE_NAME, "texpresso-live-adapter-v0.1.1.mjs");
+        assert_eq!(ADAPTER_RELEASE_TAG, "adapter-v0.1.2");
+        assert_eq!(ADAPTER_FILE_NAME, "texpresso-live-adapter-v0.1.2.mjs");
         assert_eq!(
             ADAPTER_RELEASE_URL,
-            "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.1/texpresso-live-server.mjs"
+            "https://github.com/Maymall/texpresso-zed/releases/download/adapter-v0.1.2/texpresso-live-server.mjs"
+        );
+    }
+
+    #[test]
+    fn new_adapter_filename_does_not_reuse_the_previous_release_cache_entry() {
+        let work_directory = Path::new("/zed-extension-work");
+        assert_eq!(
+            adapter_path_in(work_directory),
+            work_directory.join("texpresso-live-adapter-v0.1.2.mjs")
+        );
+        assert_ne!(
+            adapter_path_in(work_directory),
+            work_directory.join("texpresso-live-adapter-v0.1.1.mjs")
         );
     }
 }

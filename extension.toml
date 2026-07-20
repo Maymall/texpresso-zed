@@ -1,6 +1,6 @@
 id = "texpresso-live"
 name = "TeXpresso Live"
-version = "0.1.1"
+version = "0.1.2"
 schema_version = 1
 authors = ["TeXpresso Zed contributors"]
 description = "Live TeXpresso preview and diagnostics for the existing LaTeX language."

@@ -78,6 +78,14 @@ extension. It is built in CI, published as a tagged GitHub Release asset, and
 downloaded with Zed's public extension API. This is required for Registry
 extensions with a language server.
 
+Dev Extensions use that same public API and isolated work directory; they do
+**not** execute an uncommitted `server/dist/server.mjs` from the checkout.
+Therefore, rebuilding or reinstalling only the dev extension cannot test an
+unpublished adapter change. To test the full Zed path, first publish a new
+`adapter-vX.Y.Z` asset, update the versioned constants in `src/lib.rs`, rebuild
+the dev extension, and reopen the LaTeX worktree. The new versioned adapter
+filename deliberately bypasses any older file in Zed's work cache.
+
 ## Settings
 
 The adapter reads `lsp.texpresso-live.settings`. This example keeps texlab and
@@ -194,6 +202,7 @@ npm --prefix server run lint
 npm --prefix server run typecheck
 npm --prefix server test
 npm --prefix server run build
+npm --prefix server run test:release-adapter
 cargo fmt --check
 cargo check
 cargo test
@@ -202,7 +211,9 @@ cargo build --release --target wasm32-wasip2
 
 The Node suite covers chunked NDJSON, UTF-16 and multiline `change-range`,
 rollback/flush diagnostics, root magic comments, input-file rollback,
-`reset-sync`, crash cleanup, and fake-TeXpresso end-to-end LSP sessions. The
+`reset-sync`, crash cleanup, fake-TeXpresso end-to-end LSP sessions, and a
+release-adapter smoke that stages a built asset into an empty work directory
+with no `texpresso` on `PATH`. The
 Rust suite covers the settings bridge and release-asset identity. A real
 TeXpresso smoke test is part of this project's release checklist but needs a
 local TeX installation and viewer-capable desktop.
@@ -214,9 +225,14 @@ local TeX installation and viewer-capable desktop.
    in `src/lib.rs` and `extension.toml`'s extension version.
 3. The **Release adapter** workflow bundles `server/` and uploads
    `texpresso-live-server.mjs` to that GitHub Release.
-4. Test a clean Zed installation: it must download the release asset before
-   starting the adapter.
-5. Update the Zed Registry submodule and `extensions.toml` in a pull request.
+4. Run `npm --prefix server run test:release-adapter`. It starts the staged
+   release adapter from an empty work directory with a configured absolute
+   TeXpresso wrapper and an empty `PATH`; the wrapper must be the process that
+   starts. For a published-asset check, set `TEXPRESSO_RELEASE_ADAPTER` to the
+   downloaded Release asset before running the same command.
+5. Test a clean Zed installation: it must download the new versioned asset
+   before starting the adapter.
+6. Update the Zed Registry submodule and `extensions.toml` in a pull request.
 
 The Registry has a pre-existing extension with ID `texpresso`; this project
 uses the unique `texpresso-live` ID. Its separate adapter is intentional:

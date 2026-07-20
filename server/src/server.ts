@@ -1215,7 +1215,7 @@ export function createTexpressoServer(
           },
         },
       },
-      serverInfo: { name: "texpresso-live", version: "0.1.1" },
+      serverInfo: { name: "texpresso-live", version: "0.1.2" },
     };
   });
 
