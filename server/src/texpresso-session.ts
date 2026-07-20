@@ -498,10 +498,9 @@ export class TexpressoSession {
             // retain it in liveProcesses until a real close arrives.
             this.finishClose(child, false);
           }
-        }, Math.min(250, Math.max(1, timeout))).unref?.();
+        }, Math.min(250, Math.max(1, timeout)));
       }, timeout);
       this.closeTimerChild = child;
-      this.closeTimer.unref?.();
     }
     return stopPromise;
   }
@@ -668,7 +667,8 @@ export class TexpressoSession {
   }
 
   private buildArgs(): string[] {
-    const args = ["-json", "-lines"];
+    const additional = this.settings.extraArgs ?? this.settings.additionalArgs ?? [];
+    const args = [...additional, "-json", "-lines"];
     if (this.settings.distribution === "texlive") {
       args.push("-texlive");
     } else if (this.settings.distribution === "tectonic") {
@@ -677,8 +677,6 @@ export class TexpressoSession {
     for (const includePath of this.settings.includePaths ?? []) {
       args.push("-I", includePath);
     }
-    const additional = this.settings.extraArgs ?? this.settings.additionalArgs ?? [];
-    args.push(...additional);
     args.push(this.rootPath);
     return args;
   }
@@ -1418,10 +1416,9 @@ export class TexpressoSession {
             if (this.child === child && !this.closeHandled) {
               this.finishClose(child, false);
             }
-          }, Math.min(250, Math.max(1, timeout))).unref?.();
+          }, Math.min(250, Math.max(1, timeout)));
         }, timeout);
         this.closeTimerChild = child;
-        this.closeTimer.unref?.();
       }
     }
   }

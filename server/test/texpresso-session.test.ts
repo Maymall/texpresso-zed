@@ -199,6 +199,8 @@ test("spawns with an argument array for paths and configured options", async () 
   assert.deepEqual(invocation, {
     command: "/opt/TeXpresso bin/texpresso",
     args: [
+      "--jobname",
+      "paper draft",
       "-json",
       "-lines",
       "-tectonic",
@@ -206,8 +208,6 @@ test("spawns with an argument array for paths and configured options", async () 
       "includes with spaces",
       "-I",
       "/shared/tex",
-      "--jobname",
-      "paper draft",
       root,
     ],
     shell: false,

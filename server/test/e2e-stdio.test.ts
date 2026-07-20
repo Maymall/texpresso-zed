@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -22,7 +22,7 @@ interface FakeEvent {
   readonly code?: number;
 }
 
-const FAKE_TEXPRESSO = `#!/usr/bin/env node
+const FAKE_TEXPRESSO = `
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -154,8 +154,14 @@ function countCommand(
   ).length;
 }
 
+function sessionPath(filePath: string): string {
+  return process.platform === "win32" ? filePath.toLowerCase() : filePath;
+}
+
 test("starts the adapter over stdio and synchronizes a fake TeXpresso process end to end", async () => {
-  const workspace = await mkdtemp(path.join(tmpdir(), "texpresso zed e2e-"));
+  const workspace = sessionPath(
+    await realpath(await mkdtemp(path.join(tmpdir(), "texpresso zed e2e-"))),
+  );
   const mainPath = path.join(workspace, "main.tex");
   const childPath = path.join(workspace, "child.tex");
   const fakePath = path.join(workspace, "fake-texpresso.cjs");
@@ -165,7 +171,6 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
   await writeFile(mainPath, mainText);
   await writeFile(childPath, "saved child\n");
   await writeFile(fakePath, FAKE_TEXPRESSO, "utf8");
-  await chmod(fakePath, 0o755);
 
   const sourceAdapterPath = path.resolve("src/server.ts");
   const configuredAdapterPath = process.env.TEXPRESSO_LSP_ADAPTER;
@@ -223,7 +228,8 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
         },
       },
       initializationOptions: {
-        texpressoCommand: fakePath,
+        texpressoCommand: process.execPath,
+        extraArgs: [fakePath],
         autoStart: true,
       },
     });
@@ -438,10 +444,10 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     await connection.sendNotification("workspace/didChangeConfiguration", {
       settings: {
         "texpresso-live": {
-          texpressoCommand: fakePath,
+          texpressoCommand: process.execPath,
           autoStart: true,
           logLevel: "debug",
-          extraArgs: ["--configuration-restart"],
+          extraArgs: [fakePath, "--configuration-restart"],
         },
       },
     });
@@ -460,7 +466,7 @@ test("starts the adapter over stdio and synchronizes a fake TeXpresso process en
     const configuredEvents = await fakeEvents(eventsPath);
     assert.deepEqual(
       configuredEvents.filter((event) => event.type === "start").at(-1)?.args,
-      ["-json", "-lines", "--configuration-restart", mainPath],
+      ["--configuration-restart", "-json", "-lines", mainPath],
     );
     const startsBeforeStop = configuredEvents.filter(
       (event) => event.type === "start",

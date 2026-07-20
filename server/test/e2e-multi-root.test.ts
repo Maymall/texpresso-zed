@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
@@ -17,12 +17,13 @@ import { URI } from "vscode-uri";
 interface FakeEvent {
   readonly type: string;
   readonly root?: string;
+  readonly pid?: number;
   readonly args?: readonly string[];
   readonly message?: readonly unknown[];
   readonly signal?: string;
 }
 
-const MULTI_ROOT_FAKE_TEXPRESSO = `#!/usr/bin/env node
+const MULTI_ROOT_FAKE_TEXPRESSO = `
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -36,7 +37,7 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 process.on("exit", () => record({ type: "exit" }));
-record({ type: "start", args: process.argv.slice(2) });
+record({ type: "start", args: process.argv.slice(2), pid: process.pid });
 let buffer = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
@@ -93,8 +94,26 @@ function commandsFor(
     .map((event) => [...(event.message ?? [])]);
 }
 
+function sessionPath(filePath: string): string {
+  return process.platform === "win32" ? filePath.toLowerCase() : filePath;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+      return false;
+    }
+    throw error;
+  }
+}
+
 test("isolates independent root sessions through the stdio LSP adapter", async () => {
-  const workspace = await mkdtemp(path.join(tmpdir(), "texpresso multi-root "));
+  const workspace = sessionPath(
+    await realpath(await mkdtemp(path.join(tmpdir(), "texpresso multi-root "))),
+  );
   const firstRoot = path.join(workspace, "first.tex");
   const secondRoot = path.join(workspace, "second.tex");
   const fakePath = path.join(workspace, "fake-texpresso.cjs");
@@ -106,7 +125,6 @@ test("isolates independent root sessions through the stdio LSP adapter", async (
     writeFile(secondRoot, secondText),
     writeFile(fakePath, MULTI_ROOT_FAKE_TEXPRESSO, "utf8"),
   ]);
-  await chmod(fakePath, 0o755);
 
   const sourceAdapterPath = path.resolve("src/server.ts");
   const configuredAdapterPath = process.env.TEXPRESSO_LSP_ADAPTER;
@@ -133,7 +151,10 @@ test("isolates independent root sessions through the stdio LSP adapter", async (
       rootUri: URI.file(workspace).toString(),
       workspaceFolders: [{ uri: URI.file(workspace).toString(), name: "multi-root" }],
       capabilities: {},
-      initializationOptions: { texpressoCommand: fakePath },
+      initializationOptions: {
+        texpressoCommand: process.execPath,
+        extraArgs: [fakePath],
+      },
     });
     connection.sendNotification("initialized", {});
 
@@ -208,13 +229,20 @@ test("isolates independent root sessions through the stdio LSP adapter", async (
     });
     await waitFor(
       () => readEvents(eventsPath),
-      (events) =>
-        events.some(
-          (event) =>
-            event.type === "signal" &&
-            event.root === firstRoot &&
-            event.signal === "SIGTERM",
-        ),
+      (events) => {
+        if (process.platform !== "win32") {
+          return events.some(
+            (event) =>
+              event.type === "signal" &&
+              event.root === firstRoot &&
+              event.signal === "SIGTERM",
+          );
+        }
+        const firstProcess = events.find(
+          (event) => event.type === "start" && event.root === firstRoot,
+        );
+        return firstProcess?.pid !== undefined && !isProcessAlive(firstProcess.pid);
+      },
       "first root stop",
     );
     const afterFirstStop = await readEvents(eventsPath);
@@ -225,6 +253,10 @@ test("isolates independent root sessions through the stdio LSP adapter", async (
       false,
       "stopping one root must leave the other root running",
     );
+    const secondProcess = afterFirstStop.find(
+      (event) => event.type === "start" && event.root === secondRoot,
+    );
+    assert.ok(secondProcess?.pid !== undefined && isProcessAlive(secondProcess.pid));
 
     await connection.sendRequest("workspace/executeCommand", {
       command: "texpresso-live.nextPage",
@@ -242,7 +274,15 @@ test("isolates independent root sessions through the stdio LSP adapter", async (
     await connection.sendRequest("shutdown");
     await waitFor(
       () => readEvents(eventsPath),
-      (events) => events.some((event) => event.type === "exit" && event.root === secondRoot),
+      (events) => {
+        if (process.platform !== "win32") {
+          return events.some((event) => event.type === "exit" && event.root === secondRoot);
+        }
+        const secondProcess = events.find(
+          (event) => event.type === "start" && event.root === secondRoot,
+        );
+        return secondProcess?.pid !== undefined && !isProcessAlive(secondProcess.pid);
+      },
       "remaining root cleanup during shutdown",
     );
     const adapterExit = once(adapter, "exit");
